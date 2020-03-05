@@ -5,11 +5,11 @@ using Android.Content;
 using Android.Views;
 using Android.Util;
 using Android.App;
-using FLabelRenderer = Xamarin.Forms.Platform.Android.FastRenderers.LabelRenderer;
 using ABuildVersionCodes = Android.OS.BuildVersionCodes;
 using ABuild = Android.OS.Build;
 using AView = Android.Views.View;
 using ARelativeLayout = Android.Widget.RelativeLayout;
+using FLabelRenderer = Xamarin.Forms.Platform.Android.FastRenderers.LabelRenderer;
 #if __ANDROID_29__
 using AToolbar = AndroidX.AppCompat.Widget.Toolbar;
 #else
@@ -20,8 +20,9 @@ using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 using Xamarin.Forms.Internals;
 using System.Diagnostics;
-using System.IO;
-using System.Linq;
+using Android.Content.Res;
+using Android.Widget;
+using Orientation = Android.Content.Res.Orientation;
 
 namespace Xamarin.Forms.Platform.Android
 {
@@ -35,7 +36,7 @@ namespace Xamarin.Forms.Platform.Android
 		object Compute();
 	}
 
-	public sealed class AndroidAnticipator
+	public static class AndroidAnticipator
 	{
 		static class Key
 		{
@@ -69,6 +70,22 @@ namespace Xamarin.Forms.Platform.Android
 					=> $"{nameof(SdkVersion)}";
 			}
 
+			internal struct OrientationStatus : IPreBuildable
+			{
+				readonly internal Context Context;
+
+				internal OrientationStatus(Context context)
+				{
+					Context = context;
+				}
+
+				object IPreBuildable.Build()
+					=> Context.Resources.Configuration.Orientation;
+
+				public override string ToString()
+					=> $"{nameof(OrientationStatus)}";
+			}
+
 			internal struct IdedResourceExists : IPreComputable
 			{
 				readonly internal Context Context;
@@ -90,7 +107,7 @@ namespace Xamarin.Forms.Platform.Android
 				}
 
 				public override string ToString()
-					=> $"{nameof(IdedResourceExists)}, id={Id}, '{ResourceName(Id)}'";
+					=> $"{nameof(IdedResourceExists)}, '{ResourceName(Id)}'";
 			}
 
 			internal struct NamedResourceExists : IPreComputable
@@ -117,7 +134,7 @@ namespace Xamarin.Forms.Platform.Android
 				}
 
 				public override string ToString()
-					=> $"{nameof(NamedResourceExists)}, name='{Name}', type='{Type}'";
+					=> $"{nameof(NamedResourceExists)}, {Name}";
 			}
 
 			internal struct InflateResource : IPreBuildable
@@ -127,15 +144,15 @@ namespace Xamarin.Forms.Platform.Android
 
 				internal InflateResource(Context context, int id)
 				{
+					if (id == 0)
+						throw new ArgumentException("id cannot be zero");
+
 					Context = context;
 					Id = id;
 				}
 
 				object IPreBuildable.Build()
 				{
-					if (Id == 0)
-						return null;
-
 					var layoutInflator = (Context as Activity)?.LayoutInflater ?? 
 						LayoutInflater.FromContext(Context);
 
@@ -143,7 +160,7 @@ namespace Xamarin.Forms.Platform.Android
 				}
 
 				public override string ToString()
-					=> $"{nameof(InflateResource)}, id={ResourceName(Id)}";
+					=> $"{nameof(InflateResource)}, {ResourceName(Id)}";
 			}
 
 			internal struct ActivateView :
@@ -175,90 +192,135 @@ namespace Xamarin.Forms.Platform.Android
 				public override bool Equals(object other)
 					=> other is ActivateView ? Equals((ActivateView)other) : false;
 				public override string ToString()
-					=> $"{nameof(ActivateView)}, Type={Type.GetTypeInfo().Name}";
+					=> $"{nameof(ActivateView)}, {Type.GetTypeInfo().Name}";
 			}
 		}
 
 		public static void Initialize(ContextWrapper context)
 		{
+			Profile.FrameBegin();
+
 			if (context == null)
 				throw new ArgumentNullException(nameof(context));
 
-			s_singleton.AnticipateValue(new Key.SdkVersion());
+			s_scheduler.Value.Schedule(() =>
+			{
+				s_anticipator.AnticipateAllocation(new Key.ActivateView(context, typeof(AToolbar), o => new AToolbar(o)));
 
-			s_singleton.AnticipateValue(new Key.ClassConstruction(typeof(Resource.Layout)));
-			s_singleton.AnticipateValue(new Key.ClassConstruction(typeof(Resource.Attribute)));
+				s_scheduler.Value.Schedule(() =>
+				{
+					s_anticipator.AnticipateAllocation(new Key.ActivateView(context.BaseContext, typeof(ARelativeLayout), o => new ARelativeLayout(o)));
 
-			s_singleton.AnticipateAllocation(new Key.ActivateView(context, typeof(AToolbar), o => new AToolbar(o)));
-			s_singleton.AnticipateAllocation(new Key.ActivateView(context.BaseContext, typeof(ARelativeLayout), o => new ARelativeLayout(o)));
-			s_singleton.AnticipateAllocation(new Key.InflateResource(context, FormsAppCompatActivity.ToolbarResource));
+					s_scheduler.Value.Schedule(() =>
+					{
+						s_anticipator.AnticipateValue(new Key.SdkVersion());
+						//s_singleton.AnticipateValue(new Key.ClassConstruction(typeof(Resource.Layout)));
+						//s_singleton.AnticipateValue(new Key.ClassConstruction(typeof(Resource.Attribute)));
 
-			s_singleton.AnticipateValue(new Key.IdedResourceExists(context, global::Android.Resource.Attribute.ColorAccent));
-			s_singleton.AnticipateValue(new Key.NamedResourceExists(context, "colorAccent", "attr"));
+						s_anticipator.AnticipateAllocation(new Key.OrientationStatus(context));
 
-			s_singleton.AnticipateAllocation(new Key.InflateResource(context, Resource.Layout.FlyoutContent));
+						s_anticipator.AnticipateValue(new Key.IdedResourceExists(context, global::Android.Resource.Attribute.ColorAccent));
+						s_anticipator.AnticipateValue(new Key.NamedResourceExists(context, "colorAccent", "attr"));
 
-			//s_singleton.AnticipateAllocation(new Key.ActivateView(context, typeof(FLabelRenderer)));
-			//s_singleton.AnticipateAllocation(new Key.ActivateView(context, typeof(PageRenderer)));
+						if (FormsAppCompatActivity.ToolbarResource != 0)
+							s_anticipator.AnticipateAllocation(new Key.InflateResource(context, FormsAppCompatActivity.ToolbarResource));
+						if (Resource.Layout.FlyoutContent != 0)
+							s_anticipator.AnticipateAllocation(new Key.InflateResource(context, Resource.Layout.FlyoutContent));
 
-			//s_threadPool.Schedule(() => {
-			//	new PageRenderer(s_context);
-			//	new FLabelRenderer(s_context);
-			//	new FButtonRenderer(s_context);
-			//	new FImageRenderer(s_context);
-			//	new FFrameRenderer(s_context);
-			//	new ListViewRenderer(s_context);
-			//	new AFragment();
-			//	new DummyDrawable();
-			//});
+						//s_anticipator.AnticipateAllocation(new Key.ActivateView(context, typeof(ATextView), o => new ATextView(o)));
+						//s_anticipator.AnticipateAllocation(new Key.ActivateView(context, typeof(FormsViewGroup), o => new FormsViewGroup(o)));
+						//s_anticipator.AnticipateAllocation(new Key.ActivateView(context, typeof(AListView), o => new AListView(o)));
+
+						//s_singleton.AnticipateAllocation(new Key.ActivateView(context, typeof(FLabelRenderer)));
+						//s_singleton.AnticipateAllocation(new Key.ActivateView(context, typeof(PageRenderer)));
+
+						s_scheduler.Value.Schedule(() =>
+						{
+							new PageRenderer(context);
+							new FLabelRenderer(context);
+							//new FButtonRenderer(context);
+							//new FImageRenderer(context);
+							//new FFrameRenderer(context);
+							new ListViewRenderer(context);
+							//new AFragment();
+							//new DummyDrawable();
+						});
+					});
+				});
+			});
+
+			Profile.FrameEnd();
 		}
 
-		public static void Join()
-			=> s_singleton.Dispose();
+		public static void ReportUnused()
+		{
+			s_anticipator.ReportUnused();
+		}
 
 		internal static ABuildVersionCodes SdkVersion
-			=> (ABuildVersionCodes)s_singleton.Compute(new Key.SdkVersion());
+			=> (ABuildVersionCodes)s_anticipator.Compute(new Key.SdkVersion());
+
+		internal static Orientation OrientationStatus(Context context)
+			=> (Orientation)s_anticipator.Allocate(new Key.OrientationStatus(context));
 
 		internal static bool IdedResourceExists(Context context, int id)
-			=> (bool)s_singleton.Compute(new Key.IdedResourceExists(context, id));
+			=> (bool)s_anticipator.Compute(new Key.IdedResourceExists(context, id));
 
 		internal static bool NamedResourceExists(Context context, string name, string type)
-			=> (bool)s_singleton.Compute(new Key.NamedResourceExists(context, name, type));
+			=> (bool)s_anticipator.Compute(new Key.NamedResourceExists(context, name, type));
 
 		internal static AView InflateResource(Context context, int id)
-			=> (AView)s_singleton.Allocate(new Key.InflateResource(context, id));
+			=> (AView)s_anticipator.Allocate(new Key.InflateResource(context, id));
 
 		internal static AView ActivateView(Context context, Type type)
-			=> (AView)s_singleton.Allocate(new Key.ActivateView(context, type));
+			=> (AView)s_anticipator.Allocate(new Key.ActivateView(context, type));
 
 		static string ResourceName(int id)
-			=> id != 0 && s_resourceNames.TryGetValue(id, out var name) ? name : id.ToString();
+			=> id != 0 && s_resourceNames.Value.TryGetValue(id, out var name) ? name : id.ToString();
 
-		static Dictionary<int, string> s_resourceNames = new Dictionary<int, string>
+		static Lazy<Scheduler> s_scheduler;
+		static Lazy<Dictionary<int, string>> s_resourceNames;
+		static Anticipator s_anticipator;
+
+		static AndroidAnticipator()
 		{
-			[FormsAppCompatActivity.ToolbarResource] = nameof(FormsAppCompatActivity.ToolbarResource),
-			[global::Android.Resource.Attribute.ColorAccent] = nameof(global::Android.Resource.Attribute.ColorAccent),
-			[Resource.Layout.FlyoutContent] = nameof(Resource.Layout.FlyoutContent),
-		};
+			Profile.FrameBegin("AndroidAnticipator");
 
-		static Anticipator s_singleton = new Anticipator();
+			Profile.FramePartition("Scheduler");
+			s_scheduler = new Lazy<Scheduler>(() => new Scheduler());
+
+			Profile.FramePartition("Anticipator");
+			s_anticipator = new Anticipator(s_scheduler);
+
+			Profile.FramePartition("Resource Names");
+			s_resourceNames = new Lazy<Dictionary<int, string>>(() => new Dictionary<int, string>
+			{
+				[FormsAppCompatActivity.ToolbarResource] = nameof(FormsAppCompatActivity.ToolbarResource),
+				[global::Android.Resource.Attribute.ColorAccent] = nameof(global::Android.Resource.Attribute.ColorAccent),
+				[Resource.Layout.FlyoutContent] = nameof(Resource.Layout.FlyoutContent),
+			});
+
+			Profile.FrameEnd("AndroidAnticipator");
+		}
 	}
 
 	sealed class Anticipator
 	{
-		sealed class Warehouse : IDisposable
+		sealed class Warehouse
 		{
 			static ConcurrentBag<object> ActivateBag(object key)
 				=> new ConcurrentBag<object>();
 
 			readonly ConcurrentDictionary<object, object> _dictionary;
 			readonly Func<object, ConcurrentBag<object>> _activateBag;
-			readonly Scheduler _scheduler;
+			readonly ConcurrentDictionary<object, int> _timeToActivate;
+			readonly Lazy<Scheduler> _scheduler;
 
-			internal Warehouse(Scheduler scheduler)
+			internal Warehouse(Lazy<Scheduler> scheduler)
 			{
 				_activateBag = ActivateBag;
 				_dictionary = new ConcurrentDictionary<object, object>();
+				_timeToActivate = new ConcurrentDictionary<object, int>();
 				_scheduler = scheduler;
 			}
 
@@ -271,7 +333,18 @@ namespace Xamarin.Forms.Platform.Android
 			bool TryGet(object key, out object value)
 			{
 				var result = Get(key).TryTake(out value);
-				Profile.WriteLog("WAREHOUSE {0}: {1}", result ? "HIT" : "MISS", key);
+
+				if (result)
+				{
+					_timeToActivate.TryRemove(value, out var ms);
+					s_savings += ms;
+					Profile.WriteLog("WAREHOUSE HIT: {0}, ms={1}", key, ms);
+				}
+				else
+				{
+					Profile.WriteLog("WAREHOUSE MISS: {0}", key);
+				}
+
 				return result;
 			}
 
@@ -287,16 +360,24 @@ namespace Xamarin.Forms.Platform.Android
 			public void Anticipate<T>(T key = default)
 				where T : IPreBuildable
 			{
-				_scheduler.Schedule(() =>
+				_scheduler.Value.Schedule(() =>
 				{
 					try
 					{
 						var stopwatch = new Stopwatch();
 						stopwatch.Start();
-						Set(key, key.Build());
+						var value = key.Build();
+						if (value == null)
+						{
+							Profile.WriteLog("WEARHOUSED NULL BUILD: {0}", key);
+							return;
+						}
 						var ticks = stopwatch.ElapsedTicks;
+						var ms = TimeSpan.FromTicks(ticks).Milliseconds;
 
-						Profile.WriteLog("WEARHOUSED: {0}, ms={1}", key, TimeSpan.FromTicks(ticks).Milliseconds);
+						_timeToActivate.TryAdd(value, ms);
+						Set(key, value);
+						Profile.WriteLog("Wearhoused: {0}, ms={1}", key, ms);
 					}
 					catch (Exception ex)
 					{
@@ -305,33 +386,30 @@ namespace Xamarin.Forms.Platform.Android
 				});
 			}
 
-			public void Dispose()
+			public void ReportUnused()
 			{
 				foreach (var pair in _dictionary)
 				{
 					foreach (var value in ((ConcurrentBag<object>)pair.Value))
 					{
-						Profile.WriteLog("WEARHOUSE UNUSED: {0}", pair.Key);
+						_timeToActivate.TryRemove(value, out var ms);
+						Profile.WriteLog("WEARHOUSE UNUSED: {0}, ms={1}", pair.Key, ms);
 						(value as IDisposable)?.Dispose();
 					}
 				}
-
-				_dictionary.Clear();
-
-				Profile.WriteLog("WEARHOUSE DISPOSED");
 			}
 		}
 
-		sealed class Cache : IDisposable
+		sealed class Cache
 		{
 			readonly ConcurrentDictionary<object, object> _dictionary;
-			readonly ConcurrentDictionary<object, bool> _accessed;
-			readonly Scheduler _scheduler;
+			readonly ConcurrentDictionary<object, int> _timeToCompute;
+			readonly Lazy<Scheduler> _scheduler;
 
-			internal Cache(Scheduler scheduler)
+			internal Cache(Lazy<Scheduler> scheduler)
 			{
 				_scheduler = scheduler;
-				_accessed = new ConcurrentDictionary<object, bool>();
+				_timeToCompute = new ConcurrentDictionary<object, int>();
 				_dictionary = new ConcurrentDictionary<object, object>();
 			}
 
@@ -344,9 +422,11 @@ namespace Xamarin.Forms.Platform.Android
 				if (!result)
 					return false;
 
-				if (_accessed.TryAdd(key, true))
-					Profile.WriteLog("CACHE HIT: {0}", key);
+				if (!_timeToCompute.TryRemove(key, out var ms))
+					return true;
 
+				s_savings += ms;
+				Profile.WriteLog("CACHE HIT: {0}, ms={1}", key, ms);
 				return true;
 			}
 
@@ -362,16 +442,19 @@ namespace Xamarin.Forms.Platform.Android
 			public void Anticipate<T>(T key = default)
 				where T : IPreComputable
 			{
-				_scheduler.Schedule(() =>
+				_scheduler.Value.Schedule(() =>
 				{
 					try
 					{
 						var stopwatch = new Stopwatch();
 						stopwatch.Start();
-						Set(key, key.Compute());
+						var value = key.Compute();
 						var ticks = stopwatch.ElapsedTicks;
+						var ms = TimeSpan.FromTicks(ticks).Milliseconds;
 
-						Profile.WriteLog("CACHED: {0}, ms={1}", key, TimeSpan.FromTicks(ticks).Milliseconds);
+						_timeToCompute.TryAdd(key, ms);
+						Set(key, value);
+						Profile.WriteLog("Cashed: {0}, ms={1}", key, ms);
 					}
 					catch (Exception ex)
 					{
@@ -380,60 +463,59 @@ namespace Xamarin.Forms.Platform.Android
 				});
 			}
 
-			public void Dispose()
+			public void ReportUnused()
 			{
 				foreach (var pair in _dictionary)
 				{
-					if (!_accessed.ContainsKey(pair.Key))
+					if (_timeToCompute.ContainsKey(pair.Key))
 						Profile.WriteLog("CACHE UNUSED: {0}", pair.Key);
-
-					(pair.Value as IDisposable)?.Dispose();
 				}
-
-				_dictionary.Clear();
-
-				Profile.WriteLog("CACHE DISPOSED");
 			}
 		}
 
-		readonly Scheduler _scheduler;
-		readonly Cache _cache;
-		readonly Warehouse _heap;
-		readonly CpuUsage __cpuStart;
+		static int s_savings = 0;
 
-		internal Anticipator()
+		readonly Lazy<Scheduler> _scheduler;
+		readonly Lazy<Cache> _cache;
+		readonly Lazy<Warehouse> _heap;
+
+		internal Anticipator(Lazy<Scheduler> scheduler)
 		{
-			_scheduler = new Scheduler();
-			_heap = new Warehouse(_scheduler);
-			_cache = new Cache(_scheduler);
-			__cpuStart = CpuUsage.Now;
+			Profile.FrameBegin("Anticipator .ctor");
+
+			_scheduler = scheduler;
+
+			Profile.FramePartition("Warehouse");
+			_heap = new Lazy<Warehouse>(() => new Warehouse(_scheduler));
+
+			Profile.FramePartition("Cache");
+			_cache = new Lazy<Cache>(() => new Cache(_scheduler));
+
+			Profile.FrameEnd("Anticipator .ctor");
 		}
 
 		internal void AnticipateAllocation<T>(T key = default)
 			where T : IPreBuildable
-			=> _heap.Anticipate(key);
+			=> _heap.Value.Anticipate(key);
 
 		internal object Allocate<T>(T key = default)
 			where T : IPreBuildable
-			=> _heap.Get(key);
+			=> _heap.Value.Get(key);
 
 		internal void AnticipateValue<T>(T key = default)
 			where T : IPreComputable
-			=> _cache.Anticipate(key);
+			=> _cache.Value.Anticipate(key);
 
 		internal object Compute<T>(T key = default)
 			where T : IPreComputable
-			=> _cache.Get(key);
+			=> _cache.Value.Get(key);
 
-		public void Dispose()
+		public void ReportUnused()
 		{
-			_scheduler.Join();
-			_cache.Dispose();
-			_heap.Dispose();
+			_cache.Value.ReportUnused();
+			_heap.Value.ReportUnused();
 
-			var cpuNow = CpuUsage.Now;
-
-			Profile.WriteLog("ANTICIPATOR: CPU UTIL {0}%", cpuNow - __cpuStart);
+			Profile.WriteLog("ANTICIPATOR: SAVINGS {0}ms", s_savings);
 		}
 	}
 
@@ -442,16 +524,20 @@ namespace Xamarin.Forms.Platform.Android
 		private static readonly TimeSpan LoopTimeOut = TimeSpan.FromSeconds(5.0);
 		private readonly Thread _thread;
 		private readonly AutoResetEvent _work;
-		private readonly AutoResetEvent _done;
-		private readonly ConcurrentQueue<Action> _actions;
+		private readonly Lazy<ConcurrentQueue<Action>> _actions;
 
 		internal Scheduler()
 		{
-			_actions = new ConcurrentQueue<Action>();
+			Profile.FrameBegin("Scheduler .ctor");
+			_actions = new Lazy<ConcurrentQueue<Action>>(() =>
+				new ConcurrentQueue<Action>());
+
 			_work = new AutoResetEvent(false);
-			_done = new AutoResetEvent(false);
+
+			Profile.FramePartition("ParameterizedThreadStart");
 			_thread = new Thread(new ParameterizedThreadStart(Loop));
 			_thread.Start(_work);
+			Profile.FrameEnd("Scheduler .ctor");
 		}
 
 		private void Loop(object argument)
@@ -460,85 +546,29 @@ namespace Xamarin.Forms.Platform.Android
 
 			while (autoResetEvent.WaitOne(LoopTimeOut))
 			{
-				while (_actions.Count > 0)
+				while (_actions.Value.Count > 0)
 				{
 					Action action;
-					if (_actions.TryDequeue(out action))
+					if (_actions.Value.TryDequeue(out action))
+					{
+						if (action == null)
+							return;
+
 						action();
+					}
 				}
 			}
-
-			_done.Set();
 		}
+
 
 		internal void Schedule(Action action)
 		{
 			if (action == null)
 				throw new ArgumentNullException(nameof(action));
 
-			_actions.Enqueue(action);
+			_actions.Value.Enqueue(action);
 			_work.Set();
 		}
-
-		internal void Join()
-			=> _done.WaitOne();
-	}
-
-	struct CpuUsage {
-
-		const string ProcStatPath = "/proc/stat";
-
-		struct TotalIdle
-		{
-			/**
-			 From SO: e.g cpu 79242 0 74306 842486413 756859 6140 67701 0
-			 - 1st column : user = normal processes executing in user mode
-			 - 2nd column : nice = niced processes executing in user mode
-			 - 3rd column : system = processes executing in kernel mode
-			 - 4th column : idle = twiddling thumbs
-			 - 5th column : iowait = waiting for I/O to complete
-			 - 6th column : irq = servicing interrupts
-			 - 7th column : softirq = servicing softirqs
-			**/
-			const int ProcStatColumns = 7;
-			const int ProcStatIdleColumn = 3;
-
-			public int Total;
-			public int Idle;
-
-			public TotalIdle(string procStat)
-			{
-				var splits = procStat.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-				var counts = splits.Skip(1).Select(o => int.Parse(o)).Take(ProcStatColumns).ToArray();
-				Total = counts.Sum();
-				Idle = counts.Skip(ProcStatIdleColumn).First();
-			}
-		}
-
-		public static int operator-(CpuUsage lhs, CpuUsage rhs)
-		{
-			var rhsValue = rhs._totalIdle.Value;
-			var lhsValue = lhs._totalIdle.Value;
-
-			var idle = (double)(lhsValue.Idle - rhsValue.Idle);
-			var total = (double)(lhsValue.Total - rhsValue.Total);
-
-			var idlePercentage = (int)(idle * 100 / total);
-			return 100 - idlePercentage;
-		}
-
-		internal static CpuUsage Now
-			=> new CpuUsage(File.ReadLines(ProcStatPath).First());
-
-		Lazy<TotalIdle> _totalIdle;
-
-		public CpuUsage(string procStat)
-		{
-			_totalIdle = new Lazy<TotalIdle>(() => new TotalIdle(procStat));
-		}
-
-		public override string ToString()
-			=> $"Total={_totalIdle.Value.Total}, Idle={_totalIdle.Value.Idle}";
 	}
 }
  

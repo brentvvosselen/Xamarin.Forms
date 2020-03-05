@@ -244,7 +244,10 @@ namespace Xamarin.Forms.Platform.Android
 			else 
 			{
 				Profile.FramePartition("Activate Toolbar");
-				bar = AndroidAnticipator.ActivateView(this, typeof(AToolbar)).JavaCast<AToolbar>();
+				var view = AndroidAnticipator.ActivateView(this, typeof(AToolbar));
+
+				Profile.FramePartition("Cast Toolbar");
+				bar = view.JavaCast<AToolbar>();
 			}
 
 			Profile.FramePartition("Set ActionBar");

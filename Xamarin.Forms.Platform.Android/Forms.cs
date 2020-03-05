@@ -71,6 +71,7 @@ namespace Xamarin.Forms
 		static Color _ColorButtonNormal = Color.Default;
 		public static Color ColorButtonNormalOverride { get; set; }
 
+		internal static InitializationFlags _flags;
 		internal static BuildVersionCodes SdkInt => AndroidAnticipator.SdkVersion;
 
 		internal static bool Is29OrNewer
@@ -294,8 +295,9 @@ namespace Xamarin.Forms
 				{
 					var options = maybeOptions.Value;
 					var handlers = options.Handlers;
-					var flags = options.Flags;
 					var effectScopes = options.EffectScopes;
+					_flags = options.Flags;
+
 
 					//TODO: ExportCell?
 					//TODO: ExportFont
@@ -316,7 +318,7 @@ namespace Xamarin.Forms
 					}
 
 					// css
-					var noCss = (flags & InitializationFlags.DisableCss) != 0;
+					var noCss = (_flags & InitializationFlags.DisableCss) != 0;
 					if (!noCss)
 					{
 						Profile.FramePartition("RegisterStylesheets");
@@ -522,24 +524,36 @@ namespace Xamarin.Forms
 
 			void UpdateScreenMetrics(Context formsActivity)
 			{
+				Profile.FrameBegin();
+
+				Profile.FramePartition("DisplayMetrics.Density");
 				using (DisplayMetrics display = formsActivity.Resources.DisplayMetrics)
 				{
 					_scalingFactor = display.Density;
+
+					Profile.FramePartition("Set Sizes");
 					_pixelScreenSize = new Size(display.WidthPixels, display.HeightPixels);
 					_scaledScreenSize = new Size(_pixelScreenSize.Width / _scalingFactor, _pixelScreenSize.Height / _scalingFactor);
 				}
+				Profile.FrameEnd();
 			}
 
 			void CheckOrientationChanged(Context formsActivity)
 			{
-				var orientation = formsActivity.Resources.Configuration.Orientation;
+				Profile.FrameBegin();
 
-				if (!_previousOrientation.Equals(orientation))
+				Profile.FramePartition("Orientation");
+				var orientation = AndroidAnticipator.OrientationStatus(formsActivity);
+
+				Profile.FramePartition("Test");
+				if (_previousOrientation != orientation)
 					CurrentOrientation = orientation.ToDeviceOrientation();
-
 				_previousOrientation = orientation;
 
+				Profile.FramePartition("UpdateScreenMetrics");
 				UpdateScreenMetrics(formsActivity);
+
+				Profile.FrameEnd();
 			}
 
 			void ConfigurationChanged(object sender, EventArgs e)

@@ -11,9 +11,8 @@ namespace Xamarin.Forms
 	[Flags]
 	public enum InitializationFlags : long
 	{
-		DisableCss = 1 << 0
+		DisableCss = 1 << 0,
 	}
-
 
 	// Previewer uses reflection to bind to this method; Removal or modification of visibility will break previewer.
 	internal static class Registrar
