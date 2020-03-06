@@ -68,7 +68,6 @@ namespace Xamarin.Forms.Internals
 						result = Activator.CreateInstance(type, args);
 						if (result == null)
 							throw new Exception($"Failed to find matching .ctor for {type}");
-						//result = Anticipator.Singleton.Activate(type, args);
 					}
 				}
 			}

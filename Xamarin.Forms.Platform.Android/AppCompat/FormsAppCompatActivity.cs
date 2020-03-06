@@ -214,7 +214,6 @@ namespace Xamarin.Forms.Platform.Android
 		{
 			Profile.FrameBegin();
 
-			//ToolbarResource = Resource.Layout.Toolbar;
 			_activityCreated = true;
 			if (!AllowFragmentRestore)
 			{
