@@ -40,27 +40,6 @@ namespace Xamarin.Forms.Platform.Android
 	{
 		static class Key
 		{
-			internal struct ClassConstruction : IPreComputable
-			{
-				private Type _type;
-
-				public ClassConstruction(Type type)
-				{
-					_type = type;
-				}
-
-				object IPreComputable.Compute()
-				{
-					RuntimeHelpers.RunClassConstructor(_type.TypeHandle);
-					return null;
-				}
-
-				public override string ToString()
-				{
-					return ".cctor=" + _type.Name;
-				}
-			}
-
 			internal struct SdkVersion : IPreComputable
 			{
 				object IPreComputable.Compute()
@@ -214,8 +193,6 @@ namespace Xamarin.Forms.Platform.Android
 					s_scheduler.Value.Schedule(() =>
 					{
 						s_anticipator.AnticipateValue(new Key.SdkVersion());
-						//s_singleton.AnticipateValue(new Key.ClassConstruction(typeof(Resource.Layout)));
-						//s_singleton.AnticipateValue(new Key.ClassConstruction(typeof(Resource.Attribute)));
 
 						s_anticipator.AnticipateAllocation(new Key.OrientationStatus(context));
 
@@ -227,23 +204,11 @@ namespace Xamarin.Forms.Platform.Android
 						if (Resource.Layout.FlyoutContent != 0)
 							s_anticipator.AnticipateAllocation(new Key.InflateResource(context, Resource.Layout.FlyoutContent));
 
-						//s_anticipator.AnticipateAllocation(new Key.ActivateView(context, typeof(ATextView), o => new ATextView(o)));
-						//s_anticipator.AnticipateAllocation(new Key.ActivateView(context, typeof(FormsViewGroup), o => new FormsViewGroup(o)));
-						//s_anticipator.AnticipateAllocation(new Key.ActivateView(context, typeof(AListView), o => new AListView(o)));
-
-						//s_singleton.AnticipateAllocation(new Key.ActivateView(context, typeof(FLabelRenderer)));
-						//s_singleton.AnticipateAllocation(new Key.ActivateView(context, typeof(PageRenderer)));
-
 						s_scheduler.Value.Schedule(() =>
 						{
 							new PageRenderer(context);
 							new FLabelRenderer(context);
-							//new FButtonRenderer(context);
-							//new FImageRenderer(context);
-							//new FFrameRenderer(context);
 							new ListViewRenderer(context);
-							//new AFragment();
-							//new DummyDrawable();
 						});
 					});
 				});
